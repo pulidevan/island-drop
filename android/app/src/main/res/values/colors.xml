@@ -1,0 +1,7 @@
+<resources>
+    <color name="bg_dark">#000000</color>
+    <color name="card_dark">#1c1c1e</color>
+    <color name="blue">#0a84ff</color>
+    <color name="green">#30d158</color>
+    <color name="secondary">#98989f</color>
+</resources>

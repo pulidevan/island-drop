@@ -1,0 +1,18 @@
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.iml
+
+# Swift
+mac/.build/
+mac/.swiftpm/
+mac/*.xcodeproj/xcuserdata/
+
+# macOS
+.DS_Store
+
+# misc
+*.log
