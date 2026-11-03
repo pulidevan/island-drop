@@ -7,9 +7,14 @@ android/.idea/
 *.iml
 
 # Swift
+mac/build/
 mac/.build/
 mac/.swiftpm/
+mac/google_client.json
 mac/*.xcodeproj/xcuserdata/
+
+# Build output
+dist/
 
 # macOS
 .DS_Store

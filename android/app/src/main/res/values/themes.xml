@@ -1,7 +1,17 @@
 <resources>
-    <style name="Theme.IslandDrop" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:colorBackgroundCacheHint">@null</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+
+    <style name="Theme.IslandDrop" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/bg_dark</item>
-        <item name="colorPrimary">@color/blue</item>
+        <item name="android:colorPrimary">@color/blue</item>
+        <item name="android:statusBarColor">@color/bg_dark</item>
+        <item name="android:navigationBarColor">@color/bg_dark</item>
     </style>
 
     <style name="Theme.IslandDrop.Transparent" parent="Theme.IslandDrop">
@@ -9,5 +19,6 @@
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowIsFloating">false</item>
     </style>
 </resources>

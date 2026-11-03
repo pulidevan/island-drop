@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key><string>en</string>
+	<key>CFBundleExecutable</key><string>IslandDrop</string>
+	<key>CFBundleIdentifier</key><string>com.puli.islanddrop</string>
+	<key>CFBundleName</key><string>Island Drop</string>
+	<key>CFBundleDisplayName</key><string>Island Drop</string>
+	<key>CFBundleIconFile</key><string>AppIcon</string>
+	<key>CFBundlePackageType</key><string>APPL</string>
+	<key>CFBundleShortVersionString</key><string>1.0.0</string>
+	<key>CFBundleVersion</key><string>1</string>
+	<key>LSMinimumSystemVersion</key><string>14.0</string>
+	<key>LSUIElement</key><true/>
+	<key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
+	<key>NSHighResolutionCapable</key><true/>
+	<key>NSLocalNetworkUsageDescription</key><string>Island Drop finds your Android phone on this Wi-Fi network to send it files.</string>
+	<key>NSBonjourServices</key><array><string>_islanddrop._tcp</string><string>_islanddrop-mac._tcp</string></array>
+	<key>NSHumanReadableCopyright</key><string>Island Drop</string>
+</dict>
+</plist>
