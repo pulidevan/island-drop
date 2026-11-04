@@ -3,7 +3,7 @@ package com.puli.islanddrop
 /** The page the iPhone sees in Safari after scanning the QR code. Styled like an iOS share sheet. */
 object WebPage {
     fun html(device: String): String {
-        val name = device.replace("<", "&lt;").replace("&", "&amp;")
+        val name = device.replace("&", "&amp;").replace("<", "&lt;")
         return TEMPLATE.replace("{{DEVICE}}", name)
     }
 
@@ -32,7 +32,7 @@ h1{font-size:28px;margin:0;font-weight:700;letter-spacing:-.3px}
 .sub{color:var(--sec);font-size:15px;margin-top:4px}
 .sub b{color:var(--green);font-weight:600}
 .btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:54px;border:0;border-radius:15px;
- background:var(--blue);color:#fff;font:600 17px -apple-system;transition:transform .15s}
+ background:var(--blue);color:#fff;font:600 17px -apple-system,BlinkMacSystemFont,system-ui,sans-serif;transition:transform .15s}
 .btn:active{transform:scale(.97);opacity:.85}
 h2{font-size:13px;font-weight:400;color:var(--sec);text-transform:uppercase;margin:28px 16px 8px;letter-spacing:.2px}
 .card{background:var(--card);border-radius:14px;overflow:hidden}
@@ -40,12 +40,12 @@ h2{font-size:13px;font-weight:400;color:var(--sec);text-transform:uppercase;marg
 .row:first-child{border-top:0}
 @keyframes in{from{transform:translateY(12px);opacity:0}}
 .ico{width:40px;height:48px;border-radius:7px;flex:none;display:flex;align-items:flex-end;justify-content:center;color:#fff;
- font:700 10px -apple-system;padding-bottom:6px;position:relative;background:var(--blue)}
+ font:700 10px -apple-system,BlinkMacSystemFont,system-ui,sans-serif;padding-bottom:6px;position:relative;background:var(--blue)}
 .ico:after{content:"";position:absolute;top:0;right:0;border-style:solid;border-width:0 11px 11px 0;border-color:transparent var(--card) rgba(255,255,255,.45) transparent}
 .meta{flex:1;min-width:0}
 .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:16px}
 .size{color:var(--sec);font-size:13px;margin-top:2px}
-.pill{border:0;border-radius:15px;padding:7px 14px;background:var(--fill);color:var(--blue);font:600 15px -apple-system;text-decoration:none;white-space:nowrap}
+.pill{border:0;border-radius:15px;padding:7px 14px;background:var(--fill);color:var(--blue);font:600 15px -apple-system,BlinkMacSystemFont,system-ui,sans-serif;text-decoration:none;white-space:nowrap}
 .bar{height:4px;border-radius:2px;background:var(--fill);margin-top:7px;overflow:hidden}
 .bar i{display:block;height:100%;width:0;background:var(--blue);border-radius:2px;transition:width .2s}
 .done{color:var(--green);font-weight:600;font-size:15px}

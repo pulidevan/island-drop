@@ -57,6 +57,14 @@ private struct IslandContent: View {
                 if let r = model.result { ResultView(model: model, r: r).transition(.island) }
             case .message:
                 if let t = model.toast { ToastView(model: model, toast: t).transition(.island).id(t.text) }
+            case .incoming:
+                if let r = model.incoming { IncomingView(model: model, r: r).transition(.island) }
+            case .forward:
+                if let r = model.forwardOffer {
+                    IncomingView(model: model, r: r, badge: "dot.radiowaves.up.forward", badgeTint: Palette.airdropBlue,
+                                 decline: "Not Now", accept: "Send") { model.respondForward($0) }
+                        .transition(.island)
+                }
             }
         }
     }
@@ -117,7 +125,6 @@ private struct Spinner: View {
 private struct DropTargetsView: View {
     @ObservedObject var model: IslandModel
     @ObservedObject private var phone = PhoneLink.shared
-    @ObservedObject private var auth = GoogleAuth.shared
 
     var body: some View {
         let s = model.size(for: .dropTargets)
@@ -126,10 +133,6 @@ private struct DropTargetsView: View {
             HStack(spacing: 10) {
                 DropTile(model: model, target: .airdrop, title: "AirDrop", subtitle: "Nearby devices", accent: Palette.airdropBlue) {
                     Image(nsImage: SystemIcons.airDrop).resizable().interpolation(.high).frame(width: 44, height: 44)
-                }
-                DropTile(model: model, target: .drive, title: "Google Drive",
-                         subtitle: auth.isConnected ? "Upload & copy link" : "Connect & upload", accent: Palette.driveBlue) {
-                    DriveLogo().frame(width: 40)
                 }
                 DropTile(model: model, target: .phone, title: phone.preferred?.name ?? "Android",
                          subtitle: phone.preferred == nil ? "Not nearby" : "Send to phone",
@@ -154,7 +157,7 @@ private struct DropTile<Icon: View>: View {
     let accent: Color
     var enabled = true
     @ViewBuilder var icon: () -> Icon
-    @State private var targeted = false
+    private var targeted: Bool { model.hoveredTarget == target }
 
     var body: some View {
         VStack(spacing: 6) {
@@ -178,13 +181,6 @@ private struct DropTile<Icon: View>: View {
         .opacity(enabled ? 1 : 0.4)
         .scaleEffect(targeted ? 1.04 : 1)
         .animation(.spring(response: 0.28, dampingFraction: 0.6), value: targeted)
-        .onDrop(of: [.fileURL], isTargeted: $targeted) { providers in
-            model.handleDrop(providers, target: target)
-        }
-        .onChange(of: targeted) { _, t in
-            model.hoveredTarget = t ? target : nil
-            if t { NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now) }
-        }
     }
 }
 
@@ -214,17 +210,14 @@ private struct ResultView: View {
                         .transition(.opacity)
                 }
                 Spacer(minLength: 8)
-                SuccessCheck(tint: r.kind == .drive ? Palette.driveBlue : Palette.green)
+                SuccessCheck(tint: Palette.green)
             }
-            if r.kind == .drive {
+            if r.kind == .received {
                 HStack(spacing: 8) {
-                    AccessToggle(selection: r.access, busy: r.updating) { model.changeAccess($0) }
-                    Spacer(minLength: 4)
-                    PillButton(icon: "doc.on.doc.fill", title: "Copy") { model.copyResultLink() }
-                    PillButton(icon: "arrow.up.right", title: "Open") { model.openResultLink() }
-                    if phone.preferred != nil {
-                        PillButton(icon: "smartphone", title: nil) { model.sendResultToPhone() }
-                    }
+                    Spacer()
+                    PillButton(icon: "dot.radiowaves.up.forward", title: "AirDrop") { model.airDropReceived() }
+                    PillButton(icon: "folder.fill", title: "Show in Finder") { model.revealReceived() }
+                    PillButton(icon: "arrow.up.forward.app.fill", title: "Open", prominent: true) { model.openReceived() }
                 }
             }
         }
@@ -264,47 +257,12 @@ private struct CheckShape: Shape {
     }
 }
 
-private struct AccessToggle: View {
-    let selection: ShareAccess
-    let busy: Bool
-    let onChange: (ShareAccess) -> Void
-    @Namespace private var ns
-
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(ShareAccess.allCases, id: \.self) { a in
-                Button { onChange(a) } label: {
-                    HStack(spacing: 4) {
-                        if busy && selection != a {
-                            ProgressView().controlSize(.mini).scaleEffect(0.7).frame(width: 10, height: 10)
-                        } else {
-                            Image(systemName: a.symbol).font(.system(size: 10, weight: .bold))
-                        }
-                        Text(a.label).font(.system(size: 11.5, weight: .semibold))
-                    }
-                    .padding(.horizontal, 10)
-                    .frame(height: 26)
-                    .foregroundStyle(selection == a ? Color.black : Color.white.opacity(0.75))
-                    .background {
-                        if selection == a {
-                            Capsule().fill(Color.white).matchedGeometryEffect(id: "sel", in: ns)
-                        }
-                    }
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(2)
-        .background(Capsule().fill(Color.white.opacity(0.12)))
-        .animation(.spring(response: 0.32, dampingFraction: 0.78), value: selection)
-    }
-}
-
 struct PillButton: View {
     let icon: String?
     let title: String?
     var tint: Color = .white
+    var prominent = false
+    var fill: Color? = nil
     let action: () -> Void
     @State private var hover = false
 
@@ -316,8 +274,9 @@ struct PillButton: View {
             }
             .padding(.horizontal, title == nil ? 9 : 12)
             .frame(height: 28)
-            .foregroundStyle(tint)
-            .background(Capsule().fill(Color.white.opacity(hover ? 0.22 : 0.13)))
+            .foregroundStyle(prominent ? Color.black : tint)
+            .background(Capsule().fill(fill.map { $0.opacity(hover ? 0.85 : 1) }
+                ?? (prominent ? Color.white.opacity(hover ? 0.85 : 1) : Color.white.opacity(hover ? 0.22 : 0.13))))
             .contentShape(Capsule())
         }
         .buttonStyle(Pressable())
@@ -338,7 +297,6 @@ struct Pressable: ButtonStyle {
 
 private struct HomeView: View {
     @ObservedObject var model: IslandModel
-    @ObservedObject private var auth = GoogleAuth.shared
     @ObservedObject private var phone = PhoneLink.shared
 
     var body: some View {
@@ -366,92 +324,31 @@ private struct HomeView: View {
             .padding(.horizontal, 22)
             .frame(height: model.notchSize.height)
 
-            HStack(spacing: 10) {
-                Card {
-                    HStack(spacing: 10) {
-                        DriveLogo().frame(width: 26)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Google Drive").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(.white)
-                            Text(auth.isConnected ? (auth.email ?? "Connected") : "Not connected")
-                                .font(.system(size: 11)).foregroundStyle(Palette.secondary).lineLimit(1)
-                        }
-                        Spacer(minLength: 4)
-                        if auth.isConnecting {
-                            ProgressView().controlSize(.small)
-                        } else if auth.isConnected {
-                            Image(systemName: "checkmark.circle.fill").font(.system(size: 16)).foregroundStyle(Palette.green)
-                        } else {
-                            PillButton(icon: nil, title: "Connect", tint: .black) { connect() }
-                                .colorInvert()
-                        }
+            Card {
+                HStack(spacing: 10) {
+                    Image(systemName: "smartphone")
+                        .font(.system(size: 22))
+                        .foregroundStyle(phone.preferred == nil ? Palette.secondary : Palette.green)
+                        .frame(width: 26)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(phone.preferred?.name ?? "No phone found")
+                            .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                        Text(phone.preferred == nil ? "Open Island Drop on Android (same Wi-Fi)"
+                                                    : "Drag files onto the notch to send")
+                            .font(.system(size: 11)).foregroundStyle(Palette.secondary).lineLimit(1)
                     }
-                }
-                Card {
-                    HStack(spacing: 10) {
-                        Image(systemName: "smartphone")
-                            .font(.system(size: 22))
-                            .foregroundStyle(phone.preferred == nil ? Palette.secondary : Palette.green)
-                            .frame(width: 26)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(phone.preferred?.name ?? "No phone found")
-                                .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
-                            Text(phone.preferred == nil ? "Open Island Drop on Android" : "Ready to receive")
-                                .font(.system(size: 11)).foregroundStyle(Palette.secondary).lineLimit(1)
-                        }
-                        Spacer(minLength: 0)
-                        if phone.preferred != nil {
-                            Circle().fill(Palette.green).frame(width: 7, height: 7)
-                                .shadow(color: Palette.green, radius: 4)
-                        }
+                    Spacer(minLength: 0)
+                    if phone.preferred != nil {
+                        Circle().fill(Palette.green).frame(width: 7, height: 7)
+                            .shadow(color: Palette.green, radius: 4)
                     }
                 }
             }
             .padding(.horizontal, 18)
-
-            Group {
-                if model.history.isEmpty {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.down.to.line.compact")
-                        Text("Drag files onto the notch to AirDrop, upload or send to your phone")
-                    }
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Palette.secondary)
-                } else {
-                    HStack(spacing: 6) {
-                        ForEach(model.history.prefix(3)) { item in
-                            Button { model.copyHistory(item) } label: {
-                                HStack(spacing: 6) {
-                                    DriveLogo().frame(width: 12)
-                                    Text(item.file.name).lineLimit(1).truncationMode(.middle)
-                                    Image(systemName: "link").font(.system(size: 9, weight: .bold)).opacity(0.6)
-                                }
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.9))
-                                .padding(.horizontal, 10)
-                                .frame(height: 26, alignment: .center)
-                                .frame(maxWidth: 160)
-                                .background(Capsule().fill(Palette.fill))
-                                .contentShape(Capsule())
-                            }
-                            .buttonStyle(Pressable())
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 18)
-                }
-            }
-            .frame(height: 28)
         }
         .frame(width: s.width, height: s.height, alignment: .top)
     }
 
-    private func connect() {
-        guard AppSettings.shared.hasClientCredentials else { SettingsWindow.show(); return }
-        Task {
-            do { try await GoogleAuth.shared.connect() }
-            catch { model.showError(error) }
-        }
-    }
 }
 
 private struct Card<Content: View>: View {
@@ -486,5 +383,59 @@ private struct ToastView: View {
         .padding(.horizontal, 20)
         .padding(.top, model.notchSize.height + 2)
         .frame(width: s.width, height: s.height, alignment: .top)
+    }
+}
+
+// MARK: - Incoming (phone → Mac), AirDrop-style prompt
+
+private struct IncomingView: View {
+    @ObservedObject var model: IslandModel
+    let r: IncomingRequest
+    var badge = "smartphone"
+    var badgeTint = Palette.green
+    var decline = "Decline"
+    var accept = "Accept"
+    var respond: ((Bool) -> Void)? = nil
+    @State private var pulse = false
+
+    var body: some View {
+        let s = model.size(for: .incoming)
+        VStack(spacing: 12) {
+            Color.clear.frame(height: model.notchSize.height - 4)
+            HStack(spacing: 12) {
+                ZStack(alignment: .bottomTrailing) {
+                    Image(nsImage: r.icon).resizable().interpolation(.high).frame(width: 40, height: 40)
+                    Image(systemName: badge)
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 18, height: 18)
+                        .background(Circle().fill(badgeTint))
+                        .overlay(Circle().stroke(Color.black, lineWidth: 2))
+                        .offset(x: 4, y: 4)
+                        .scaleEffect(pulse ? 1.12 : 1)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(r.sender)
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(.white).lineLimit(1)
+                    Text(respond == nil ? "wants to send \(r.title) · \(r.detail)" : "\(r.title) · \(r.detail)")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(Palette.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 8) {
+                Spacer()
+                PillButton(icon: nil, title: decline) { (respond ?? model.respondIncoming)(false) }
+                PillButton(icon: respond == nil ? "star.fill" : nil, title: respond == nil ? "Accept & Remember" : accept,
+                           fill: Palette.airdropBlue) { (respond ?? model.respondIncoming)(true) }
+            }
+        }
+        .padding(.horizontal, 22)
+        .frame(width: s.width, height: s.height, alignment: .top)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { pulse = true }
+        }
     }
 }

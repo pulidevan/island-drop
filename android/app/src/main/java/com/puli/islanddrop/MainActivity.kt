@@ -116,11 +116,14 @@ class MainActivity : Activity() {
         root.addView(opts, matchWrap())
 
         // Actions
-        root.addView(button("Preview Pop-up", filled = true) { preview() }, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(26) })
+        root.addView(button("Send Files to Mac", filled = true) { pickFiles() }, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(26) })
+        root.addView(button("Connect iPhone", filled = true) { QrActivity.open(this) },
+            LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(8) })
+        root.addView(button("Preview Pop-up", filled = false) { preview() }, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
         root.addView(button("Open Received Files", filled = false) {
             startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
-        root.addView(text("On your Mac: install Island Drop, drag a file onto the notch and drop it on your phone. Both devices must be on the same Wi-Fi.",
+        root.addView(text("Mac → phone: drag a file onto the notch and drop it on your phone.\nPhone → Mac: Share → Send to Mac from any app.\niPhone: tap Connect iPhone and scan the code with the iPhone camera, or Share → Send to iPhone. Same Wi-Fi.",
             13f, secondary).apply { setPadding(dp(4), dp(18), dp(4), 0); gravity = Gravity.CENTER })
 
         return ScrollView(this).apply { isFillViewport = true; addView(root) }
@@ -132,6 +135,28 @@ class MainActivity : Activity() {
         statusSub.text = ReceiverService.visibleAs?.let { "Visible to your Mac as “$it”" } ?: "Connecting to Wi-Fi…"
         rows.forEach { (ok, badge) -> styleBadge(badge, ok()) }
     }
+
+    private fun pickFiles() {
+        val i = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("*/*").putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        @Suppress("DEPRECATION") startActivityForResult(i, PICK)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION") super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != PICK || resultCode != RESULT_OK || data == null) return
+        val uris = ArrayList<Uri>()
+        data.clipData?.let { cd -> for (k in 0 until cd.itemCount) uris += cd.getItemAt(k).uri }
+        if (uris.isEmpty()) data.data?.let { uris += it }
+        if (uris.isEmpty()) return
+        startActivity(Intent(this, ShareActivity::class.java)
+            .setAction(Intent.ACTION_SEND_MULTIPLE)
+            .putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+    }
+
+    private val PICK = 7
 
     private fun preview() {
         val f = FileInfo("Quarterly Report.pdf", 2_430_000, "application/pdf")

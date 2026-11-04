@@ -24,7 +24,7 @@ Outputs: `dist/IslandDrop.dmg` (macOS 14+, universal) and `dist/IslandDrop.apk` 
 
 ## Environment gotchas (important)
 
-- **The project path ends with a space:** `/Users/puli/Documents/dynamic island ` (the folder name is `dynamic island` with a space after it). Always quote paths.
+- **The project path ends with a space:** `/Users/puli/Documents/Island drop` (the folder name is `dynamic island` with a space after it). Always quote paths.
 - **No Xcode,** only Command Line Tools. SwiftPM's manifest step fails to link, so **don't use `swift build`**. `mac/build.sh` calls `swiftc` directly for arm64 and x86_64, runs `lipo`, builds the .app bundle by hand, signs ad-hoc (`codesign -s -`), and makes the DMG with `hdiutil`. `Package.swift` exists but isn't used.
 - Swift language mode 5 (`-swift-version 5`). Warnings about captured vars in Network callbacks are known and harmless; they run on serial queues.
 - Java: `JAVA_HOME=/opt/homebrew/opt/openjdk@17`. Homebrew's `gradle` is 9.x, which **can't** configure this AGP 8.11 project; always use `./gradlew` (Gradle 8.14.3). Android SDK at `~/Library/Android/sdk` (platform 36, build-tools 35/36). No emulator or system images are installed, and the tablet isn't on adb.
@@ -36,16 +36,16 @@ Outputs: `dist/IslandDrop.dmg` (macOS 14+, universal) and `dist/IslandDrop.apk` 
 
 ```bash
 # Mac → dist/IslandDrop.dmg and mac/build/Island Drop.app
-"/Users/puli/Documents/dynamic island /mac/build.sh"
+"/Users/puli/Documents/Island drop/mac/build.sh"
 pkill -x IslandDrop; rm -rf "/Applications/Island Drop.app"
-cp -R "/Users/puli/Documents/dynamic island /mac/build/Island Drop.app" /Applications/ && open "/Applications/Island Drop.app"
+cp -R "/Users/puli/Documents/Island drop/mac/build/Island Drop.app" /Applications/ && open "/Applications/Island Drop.app"
 
 # Android → dist/IslandDrop.apk
-cd "/Users/puli/Documents/dynamic island /android" && JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew assembleRelease --no-daemon -q
+cd "/Users/puli/Documents/Island drop/android" && JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew assembleRelease --no-daemon -q
 cp app/build/outputs/apk/release/app-release.apk ../dist/IslandDrop.apk
 
 # Push a new APK to the tablet through the island itself (no adb needed):
-pkill -x IslandDrop; open -a "/Applications/Island Drop.app" --args --drop phone "/Users/puli/Documents/dynamic island /dist/IslandDrop.apk"
+pkill -x IslandDrop; open -a "/Applications/Island Drop.app" --args --drop phone "/Users/puli/Documents/Island drop/dist/IslandDrop.apk"
 # The user then installs it from Files → Downloads → Island Drop (the app's own "Open" can't install APKs).
 # Check the tablet runs the newest build: nc -z -G 3 192.168.29.119 8765   (the QR web server exists only in the newest APK)
 ```

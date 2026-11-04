@@ -38,28 +38,6 @@ struct NotchShape: Shape {
     }
 }
 
-/// Google Drive mark (2020), drawn from the official 87.3×78 artwork geometry.
-struct DriveLogo: View {
-    var body: some View {
-        Canvas { ctx, size in
-            let sx = size.width / 87.3, sy = size.height / 78
-            func poly(_ pts: [(CGFloat, CGFloat)], _ hex: UInt32) {
-                var p = Path()
-                p.addLines(pts.map { CGPoint(x: $0.0 * sx, y: $0.1 * sy) })
-                p.closeSubpath()
-                ctx.fill(p, with: .color(Color(hex: hex)))
-            }
-            poly([(6.6, 66.85), (10.45, 73.5), (13.75, 76.8), (27.5, 53), (0, 53), (1.2, 57.5)], 0x0066DA)
-            poly([(43.65, 25), (29.9, 1.2), (26.6, 4.5), (1.2, 48.5), (0, 53), (27.5, 53)], 0x00AC47)
-            poly([(73.55, 76.8), (76.85, 73.5), (78.45, 70.75), (86.1, 57.5), (87.3, 53), (59.8, 53), (65.65, 64.5)], 0xEA4335)
-            poly([(43.65, 25), (57.4, 1.2), (52.9, 0), (34.4, 0), (29.9, 1.2)], 0x00832D)
-            poly([(59.8, 53), (27.5, 53), (13.75, 76.8), (18.25, 78), (69.05, 78), (73.55, 76.8)], 0x2684FC)
-            poly([(73.4, 26.5), (60.7, 4.5), (57.4, 1.2), (43.65, 25), (59.8, 53), (87.3, 53), (86.1, 48.5)], 0xFFBA00)
-        }
-        .aspectRatio(87.3 / 78, contentMode: .fit)
-    }
-}
-
 extension Color {
     init(hex: UInt32) {
         self.init(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)

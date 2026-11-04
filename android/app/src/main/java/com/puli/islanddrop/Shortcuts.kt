@@ -16,8 +16,8 @@ object Shortcuts {
 
     fun publish(c: Context, macs: List<String>) {
         val sm = c.getSystemService(ShortcutManager::class.java) ?: return
-        val shortcuts = macs.take(4).mapIndexed { rank, name ->
-            ShortcutInfo.Builder(c, PREFIX + name)
+        macs.forEachIndexed { rank, name ->
+            val s = ShortcutInfo.Builder(c, PREFIX + name)
                 .setShortLabel(name.take(24))
                 .setLongLabel(name)
                 .setIcon(Icon.createWithResource(c, R.drawable.ic_mac_shortcut))
@@ -26,13 +26,13 @@ object Shortcuts {
                 .setCategories(setOf(CATEGORY))
                 .setRank(rank)
                 .build()
-        }
-        runCatching {
-            if (Build.VERSION.SDK_INT >= 30) {
-                shortcuts.forEach { sm.pushDynamicShortcut(it) }
-            } else {
-                sm.dynamicShortcuts = shortcuts
+            runCatching {
+                if (Build.VERSION.SDK_INT >= 30) sm.pushDynamicShortcut(s) else sm.addDynamicShortcuts(listOf(s))
             }
         }
+    }
+
+    fun used(c: Context, name: String) {
+        runCatching { c.getSystemService(ShortcutManager::class.java)?.reportShortcutUsed(PREFIX + name) }
     }
 }

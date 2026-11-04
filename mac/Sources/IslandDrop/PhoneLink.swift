@@ -10,7 +10,6 @@ import UniformTypeIdentifiers
 ///   phone → Mac : "ACCEPT\n" | "DECLINE\n"
 ///   Mac → phone : raw bytes of every file, back to back
 ///   phone → Mac : "DONE\n"
-/// Links: {"v":1,"type":"link","url":…,"title":…,"sender":…}  →  "OK\n"
 @MainActor
 final class PhoneLink: ObservableObject {
     static let shared = PhoneLink()
@@ -97,14 +96,6 @@ final class PhoneLink: ObservableObject {
         guard done == "DONE" else { throw IslandError("\(device.name) couldn't save the file") }
     }
 
-    nonisolated func sendLink(_ url: String, title: String, to device: Device) async throws {
-        let c = LineConnection(endpoint: device.endpoint)
-        defer { c.close() }
-        try await c.open()
-        let header: [String: Any] = ["v": 1, "type": "link", "url": url, "title": title, "sender": await Self.computerName]
-        try await c.send(JSONSerialization.data(withJSONObject: header) + Data("\n".utf8))
-        _ = try await c.readLine(timeout: 15)
-    }
 }
 
 /// NWConnection with async send + line reads. All state lives on `queue`.
@@ -112,6 +103,8 @@ final class LineConnection {
     private let conn: NWConnection
     private let queue = DispatchQueue(label: "islanddrop.phone")
     private var buffer = Data()
+
+    init(connection: NWConnection) { conn = connection }
 
     init(endpoint: NWEndpoint) {
         let tcp = NWProtocolTCP.Options()
@@ -166,6 +159,26 @@ final class LineConnection {
                     }
                 }
                 receive()
+            }
+        }
+    }
+
+    /// Next chunk of raw bytes (buffered bytes first).
+    func receiveChunk(maxLength: Int) async throws -> Data {
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Data, Error>) in
+            queue.async { [self] in
+                if !buffer.isEmpty {
+                    let n = min(maxLength, buffer.count)
+                    let d = Data(buffer.prefix(n))
+                    buffer.removeFirst(n)
+                    c.resume(returning: d)
+                    return
+                }
+                conn.receive(minimumIncompleteLength: 1, maximumLength: maxLength) { data, _, _, error in
+                    if let data, !data.isEmpty { c.resume(returning: data) }
+                    else if let error { c.resume(throwing: error) }
+                    else { c.resume(throwing: IslandError("The phone closed the connection")) }
+                }
             }
         }
     }

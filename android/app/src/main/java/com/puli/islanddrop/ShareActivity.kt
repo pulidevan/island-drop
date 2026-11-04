@@ -65,7 +65,8 @@ class ShareActivity : Activity() {
 
         val out = Outgoing.from(this, intent)
         if (out == null) { finish(); return }
-        setContentView(SendSheetView(this, out) {
+        val directMac = Shortcuts.macName(intent.getStringExtra(Intent.EXTRA_SHORTCUT_ID))
+        setContentView(SendSheetView(this, out, directMac) {
             finish()
             @Suppress("DEPRECATION") overridePendingTransition(0, 0)
         })
@@ -241,7 +242,12 @@ object MacSender {
 
 /** AirDrop-style share sheet: preview on top, nearby Macs as bubbles with progress rings. */
 @SuppressLint("ViewConstructor", "ClickableViewAccessibility")
-class SendSheetView(context: Context, private val out: Outgoing, private val onClosed: () -> Unit) : FrameLayout(context) {
+class SendSheetView(
+    context: Context,
+    private val out: Outgoing,
+    private val autoSendTo: String?,
+    private val onClosed: () -> Unit,
+) : FrameLayout(context) {
     private val dark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
     private val cardColor = if (dark) 0xFF1C1C1E.toInt() else Color.WHITE
     private val labelColor = if (dark) Color.WHITE else Color.BLACK
@@ -338,6 +344,7 @@ class SendSheetView(context: Context, private val out: Outgoing, private val onC
         }
         setupSwipe()
         update(emptyList())
+        if (autoSendTo != null) status.text = "Sending to $autoSendTo…"
     }
 
     override fun onAttachedToWindow() {
@@ -365,6 +372,7 @@ class SendSheetView(context: Context, private val out: Outgoing, private val onC
             row.addView(b, LinearLayout.LayoutParams(dp(92), -1))
             b.scaleX = 0.5f; b.scaleY = 0.5f; b.alpha = 0f
             b.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(600).setInterpolator(SpringInterpolator(0.6f)).start()
+            if (s.serviceName == autoSendTo && !busy) postDelayed({ sendTo(s, b) }, 450)
         }
         val empty = bubbles.isEmpty()
         searching.visibility = if (empty) VISIBLE else GONE
@@ -387,6 +395,7 @@ class SendSheetView(context: Context, private val out: Outgoing, private val onC
                         MacSender.Event.Waiting -> status.text = "Waiting for ${s.serviceName} to accept…"
                         is MacSender.Event.Progress -> { b.setProgress(e.p); status.text = "Sending… ${(e.p * 100).toInt()}%" }
                         MacSender.Event.Done -> {
+                            Shortcuts.used(context, s.serviceName)
                             b.setState(MacBubble.State.DONE)
                             status.text = "Sent"
                             performHapticFeedback(if (Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.VIRTUAL_KEY)

@@ -8,6 +8,10 @@ A Dynamic Island that lives in your MacBook's notch, plus an AirDrop-style link 
 
 **Phone → Mac:** on Android, tap **Share → Send to Mac** in any app. Your Mac also shows up in the top row of the share menu. You can also tap **Send Files to Mac** in Island Drop. The island on the Mac drops down with **Decline / Accept**. Files save to `~/Downloads`, and shared links open in the browser.
 
+**iPhone ⇄ Android** (true AirDrop can't be added by an app, so there are two ways):
+- **QR web transfer, no Mac needed:** on Android tap **Connect iPhone** and scan the code with the iPhone camera. Safari opens a page that sends photos and files to the tablet and downloads anything the tablet shares. To push files from Android, use **Share → Send to iPhone**.
+- **Through the Mac:** AirDrop from the iPhone to the Mac as usual, and the island offers **Send to [tablet]** (or forwards automatically, see Settings). Files arriving from the tablet get an **AirDrop** button to pass them on to the iPhone.
+
 ```
 dist/IslandDrop.dmg   macOS 14+ (Apple silicon + Intel)
 dist/IslandDrop.apk   Android 10+

@@ -3,10 +3,10 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum IslandState: Equatable {
-    case idle, hover, dragPeek, working, dropTargets, open, result, message
+    case idle, hover, dragPeek, working, dropTargets, open, result, message, incoming, forward
 }
 
-enum DropTarget: String { case airdrop, drive, phone }
+enum DropTarget: String { case airdrop, phone }
 
 struct Activity: Equatable {
     var icon: NSImage
@@ -16,27 +16,25 @@ struct Activity: Equatable {
 }
 
 struct ResultInfo: Equatable {
-    enum Kind: Equatable { case drive, phone }
+    enum Kind: Equatable { case phone, received }
     var kind: Kind
     var icon: NSImage
     var title: String
     var subtitle: String
-    var files: [DriveFile]
-    var access: ShareAccess
-    var updating = false
+    var localURLs: [URL] = []
+}
+
+struct IncomingRequest: Equatable {
+    var sender: String
+    var title: String
+    var detail: String
+    var icon: NSImage
 }
 
 struct Toast: Equatable {
     var icon: String
     var text: String
     var tint: Color
-}
-
-struct HistoryItem: Codable, Identifiable, Equatable {
-    var id: String { file.id }
-    var file: DriveFile
-    var date: Date
-    var access: ShareAccess
 }
 
 enum Motion {
@@ -56,10 +54,17 @@ final class IslandModel: ObservableObject {
     @Published var activity: Activity?
     @Published var result: ResultInfo?
     @Published var toast: Toast?
-    @Published var history: [HistoryItem] = []
     @Published var hoveredTarget: DropTarget?
+    @Published var incoming: IncomingRequest?
+    @Published var forwardOffer: IncomingRequest?
+    private var forwardURLs: [URL] = []
+    private var incomingReply: CheckedContinuation<Bool, Never>?
 
     private(set) var isDraggingFiles = false
+    private var resultShownAt = Date.distantPast
+    /// Ignore clicks that land on a result button the instant it appears under the cursor.
+    var lastMouseDown = Date.distantPast
+    private var resultSettled: Bool { lastMouseDown > resultShownAt.addingTimeInterval(0.15) }
     private(set) var pointerInside = false
     private var leaveStart: Date?
     private var collapseTask: Task<Void, Never>?
@@ -68,10 +73,7 @@ final class IslandModel: ObservableObject {
 
     let ear: CGFloat = 40
 
-    private init() {
-        if let data = UserDefaults.standard.data(forKey: "history"),
-           let h = try? JSONDecoder().decode([HistoryItem].self, from: data) { history = h }
-    }
+    private init() {}
 
     // MARK: Geometry
 
@@ -83,10 +85,11 @@ final class IslandModel: ObservableObject {
         case .idle: return n
         case .hover: return CGSize(width: n.width + 16, height: n.height + 4)
         case .dragPeek, .working: return CGSize(width: n.width + ear * 2, height: n.height)
-        case .dropTargets: return CGSize(width: max(n.width + 300, 500), height: n.height + 122)
-        case .open: return CGSize(width: max(n.width + 330, 530), height: n.height + 150)
-        case .result: return CGSize(width: max(n.width + 300, 500), height: n.height + 106)
-        case .message: return CGSize(width: max(n.width + 160, 340), height: n.height + 40)
+        case .dropTargets: return CGSize(width: max(n.width + 190, 380), height: n.height + 122)
+        case .open: return CGSize(width: max(n.width + 270, 440), height: n.height + 84)
+        case .result: return CGSize(width: max(n.width + 280, 470), height: n.height + (result?.kind == .phone ? 62 : 106))
+        case .message: return CGSize(width: max(n.width + 160, 340), height: n.height + 46)
+        case .incoming, .forward: return CGSize(width: max(n.width + 280, 470), height: n.height + 100)
         }
     }
 
@@ -110,7 +113,7 @@ final class IslandModel: ObservableObject {
     }
     private func n2(_ h: CGFloat) -> CGFloat { h / 2 }
 
-    var isExpanded: Bool { [.open, .dropTargets, .result, .message].contains(state) }
+    var isExpanded: Bool { [.open, .dropTargets, .result, .message, .incoming, .forward].contains(state) }
     var restingState: IslandState { activity != nil ? .working : .idle }
 
     func go(_ s: IslandState) {
@@ -118,6 +121,7 @@ final class IslandModel: ObservableObject {
         let a = size(for: s), b = size
         let grow = a.width * a.height > b.width * b.height
         if s != .result && s != .message { collapseTask?.cancel() }
+        if s == .result { resultShownAt = Date() }
         withAnimation(grow ? Motion.expand : Motion.collapse) { state = s }
         if grow && [.dropTargets, .result].contains(s) {
             NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
@@ -126,8 +130,11 @@ final class IslandModel: ObservableObject {
 
     // MARK: Pointer + drag (driven by IslandController)
 
+    private var demo = false
+
     func pointer(inside: Bool) {
         pointerInside = inside
+        guard !demo else { return }
         switch state {
         case .idle:
             if inside && !isDraggingFiles { go(.hover) }
@@ -143,6 +150,7 @@ final class IslandModel: ObservableObject {
     }
 
     func drag(active: Bool, near: Bool) {
+        guard !demo else { return }
         if active != isDraggingFiles {
             isDraggingFiles = active
             if !active {
@@ -173,29 +181,31 @@ final class IslandModel: ObservableObject {
 
     // MARK: Drops
 
-    func handleDrop(_ providers: [NSItemProvider], target: DropTarget) -> Bool {
+    func setHoveredTarget(_ t: DropTarget?) {
+        guard t != hoveredTarget else { return }
+        hoveredTarget = t
+        if t != nil { NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now) }
+    }
+
+    func acceptDrop(_ target: DropTarget, urls: [URL]) -> Bool {
         if target == .phone && PhoneLink.shared.preferred == nil {
             showToast("smartphone", "No phone nearby. Open Island Drop on Android", tint: .orange)
             return false
         }
-        Self.loadURLs(providers) { [self] urls in
-            guard !urls.isEmpty else { return }
-            switch target {
-            case .airdrop: airDrop(urls)
-            case .drive: enqueue { await self.uploadToDrive(urls) }
-            case .phone: enqueue { await self.sendToPhone(urls) }
-            }
-        }
+        isDraggingFiles = false
+        hoveredTarget = nil
+        perform(target, urls: urls)
         return true
     }
 
     func perform(_ target: DropTarget, urls: [URL]) {
         switch target {
         case .airdrop: airDrop(urls)
-        case .drive: enqueue { await self.uploadToDrive(urls) }
         case .phone: enqueue { await self.sendToPhone(urls) }
         }
     }
+
+    func enqueueJob(_ job: @escaping @MainActor () async -> Void) { enqueue(job) }
 
     private func enqueue(_ job: @escaping @MainActor () async -> Void) {
         let prev = jobChain
@@ -216,126 +226,6 @@ final class IslandModel: ObservableObject {
         NSApp.activate(ignoringOtherApps: true)
         service.perform(withItems: urls)
         go(restingState)
-    }
-
-    // MARK: Google Drive
-
-    func uploadToDrive(_ urls: [URL]) async {
-        let auth = GoogleAuth.shared
-        let settings = AppSettings.shared
-        do {
-            if !auth.isConnected {
-                guard settings.hasClientCredentials else {
-                    showToast("gearshape.fill", "Set up Google Drive in Settings", tint: .orange)
-                    SettingsWindow.show()
-                    return
-                }
-                showToast("person.crop.circle.badge.checkmark", "Continue sign-in in your browser", tint: .blue, duration: 4)
-                try await auth.connect()
-            }
-            let items = try await Self.prepare(urls)
-            defer { items.forEach { $0.cleanup() } }
-            let access = settings.defaultAccess
-            var files: [DriveFile] = []
-            for (i, item) in items.enumerated() {
-                setActivity(Activity(icon: item.icon, title: item.url.lastPathComponent, progress: 0, tint: Palette.driveBlue))
-                let count = Double(items.count)
-                let f = try await DriveClient.shared.upload(fileURL: item.url, access: access) { p in
-                    Task { @MainActor in self.activity?.progress = (Double(i) + p) / count }
-                }
-                files.append(f)
-            }
-            activity = nil
-            let links = files.map { $0.link(access) }.joined(separator: "\n")
-            if settings.autoCopy { Self.copy(links) }
-            addHistory(files, access: access)
-            result = ResultInfo(
-                kind: .drive, icon: items[0].icon,
-                title: files.count == 1 ? files[0].name : "\(files.count) files",
-                subtitle: subtitle(for: access, copied: settings.autoCopy),
-                files: files, access: access)
-            go(.result)
-            scheduleCollapse(after: 7)
-            if settings.sendLinkToPhone, let phone = PhoneLink.shared.preferred {
-                try? await PhoneLink.shared.sendLink(links, title: result?.title ?? "", to: phone)
-            }
-        } catch {
-            activity = nil
-            showError(error)
-        }
-    }
-
-    private func subtitle(for access: ShareAccess, copied: Bool) -> String {
-        let kind = access == .view ? "View-only link" : "Download link"
-        return copied ? "\(kind) copied" : "Uploaded to Google Drive"
-    }
-
-    func changeAccess(_ access: ShareAccess) {
-        guard var r = result, r.kind == .drive, r.access != access, !r.updating else { return }
-        r.updating = true
-        withAnimation(Motion.content) { result = r }
-        collapseTask?.cancel()
-        Task {
-            do {
-                for f in r.files { try await DriveClient.shared.setAccess(fileID: f.id, access: access) }
-                Self.copy(r.files.map { $0.link(access) }.joined(separator: "\n"))
-                withAnimation(Motion.content) {
-                    result?.access = access
-                    result?.updating = false
-                    result?.subtitle = subtitle(for: access, copied: true)
-                }
-                AppSettings.shared.defaultAccess = access
-                let ids = Set(r.files.map(\.id))
-                for i in history.indices where ids.contains(history[i].id) { history[i].access = access }
-                saveHistory()
-            } catch {
-                result?.updating = false
-                showError(error)
-                return
-            }
-            scheduleCollapse(after: 6)
-        }
-    }
-
-    func copyResultLink() {
-        guard let r = result else { return }
-        Self.copy(r.files.map { $0.link(r.access) }.joined(separator: "\n"))
-        withAnimation(Motion.content) { result?.subtitle = "Link copied" }
-        scheduleCollapse(after: 4)
-    }
-
-    func openResultLink() {
-        guard let f = result?.files.first, let r = result, let url = URL(string: f.viewLink) else { return }
-        _ = r
-        NSWorkspace.shared.open(url)
-        go(restingState)
-    }
-
-    func sendResultToPhone() {
-        guard let r = result, let phone = PhoneLink.shared.preferred else { return }
-        let links = r.files.map { $0.link(r.access) }.joined(separator: "\n")
-        Task {
-            do {
-                try await PhoneLink.shared.sendLink(links, title: r.title, to: phone)
-                withAnimation(Motion.content) { result?.subtitle = "Link sent to \(phone.name)" }
-                scheduleCollapse(after: 3)
-            } catch { showError(error) }
-        }
-    }
-
-    func copyHistory(_ item: HistoryItem) {
-        Self.copy(item.file.link(item.access))
-        showToast("link", "Link copied", tint: Palette.driveBlue, duration: 1.6)
-    }
-
-    private func addHistory(_ files: [DriveFile], access: ShareAccess) {
-        history.insert(contentsOf: files.map { HistoryItem(file: $0, date: Date(), access: access) }, at: 0)
-        history = Array(history.prefix(20))
-        saveHistory()
-    }
-
-    private func saveHistory() {
-        if let d = try? JSONEncoder().encode(history) { UserDefaults.standard.set(d, forKey: "history") }
     }
 
     // MARK: Phone
@@ -360,13 +250,124 @@ final class IslandModel: ObservableObject {
             result = ResultInfo(
                 kind: .phone, icon: items[0].icon,
                 title: items.count == 1 ? items[0].url.lastPathComponent : "\(items.count) files",
-                subtitle: "Sent to \(device.name)", files: [], access: .download)
+                subtitle: "Sent to \(device.name)")
             go(.result)
             scheduleCollapse(after: 4)
         } catch {
             activity = nil
             showError(error)
         }
+    }
+
+    // MARK: Receiving from the phone
+
+    /// Shows the AirDrop-style Accept / Decline prompt and waits for the answer.
+    func askIncoming(_ r: IncomingRequest) async -> Bool {
+        let settings = AppSettings.shared
+        if settings.autoAcceptFromPhone || settings.isFavorite(r.sender) { return true }
+        respondIncoming(false) // only one prompt at a time
+        incoming = r
+        go(.incoming)
+        NSSound(named: "Glass")?.play()
+        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+        return await withCheckedContinuation { c in
+            incomingReply = c
+            DispatchQueue.main.asyncAfter(deadline: .now() + 100) { [weak self] in
+                if self?.incoming == r { self?.respondIncoming(false) }
+            }
+        }
+    }
+
+    func respondIncoming(_ accept: Bool) {
+        guard let c = incomingReply else { return }
+        incomingReply = nil
+        // Accepting once makes the device a favorite: future transfers skip the prompt.
+        if accept, let sender = incoming?.sender { AppSettings.shared.addFavorite(sender) }
+        c.resume(returning: accept)
+        if !accept, state == .incoming { go(restingState) }
+        incoming = nil
+    }
+
+    func receiveStarted(icon: NSImage) {
+        setActivity(Activity(icon: icon, title: "Receiving", progress: 0, tint: Palette.green))
+        if state == .incoming { go(.working) }
+    }
+
+    func receiveProgress(_ p: Double) { activity?.progress = p }
+
+    func receiveFinished(_ urls: [URL], from sender: String) {
+        activity = nil
+        guard let first = urls.first else { return }
+        result = ResultInfo(
+            kind: .received, icon: NSWorkspace.shared.icon(forFile: first.path),
+            title: urls.count == 1 ? first.lastPathComponent : "\(urls.count) files",
+            subtitle: "From \(sender) · Saved to Downloads", localURLs: urls)
+        go(.result)
+        scheduleCollapse(after: 8)
+    }
+
+    func receiveFailed(_ error: Error) {
+        activity = nil
+        showError(error)
+    }
+
+    func openReceived() {
+        guard resultSettled else { return }
+        guard let urls = result?.localURLs, let first = urls.first else { return }
+        if urls.count == 1 { NSWorkspace.shared.open(first) } else { NSWorkspace.shared.activateFileViewerSelecting(urls) }
+        go(restingState)
+    }
+
+    func revealReceived() {
+        guard resultSettled else { return }
+        guard let urls = result?.localURLs, !urls.isEmpty else { return }
+        NSWorkspace.shared.activateFileViewerSelecting(urls)
+        go(restingState)
+    }
+
+    func receivedLink(_ text: String, from sender: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let url = URL(string: trimmed), let scheme = url.scheme, ["http", "https"].contains(scheme.lowercased()) {
+            NSWorkspace.shared.open(url)
+            showToast("safari.fill", "Opened link from \(sender)", tint: Palette.airdropBlue)
+        } else {
+            Self.copy(trimmed)
+            showToast("doc.on.clipboard.fill", "Text from \(sender) copied", tint: Palette.green)
+        }
+    }
+
+    // MARK: Relay (iPhone ⇄ Mac ⇄ Android)
+
+    /// Files just arrived by AirDrop (from an iPhone): offer to pass them on to the Android device.
+    func airDropArrived(_ urls: [URL]) {
+        guard let phone = PhoneLink.shared.preferred, !urls.isEmpty else { return }
+        if AppSettings.shared.autoForwardAirDrop {
+            enqueue { await self.sendToPhone(urls) }
+            return
+        }
+        guard ![.dropTargets, .incoming].contains(state) else { return }
+        forwardURLs = urls
+        let size = urls.reduce(Int64(0)) { $0 + ((try? FileManager.default.attributesOfItem(atPath: $1.path)[.size] as? NSNumber)?.int64Value ?? 0) }
+        forwardOffer = IncomingRequest(
+            sender: "Received with AirDrop",
+            title: urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) files",
+            detail: "Send to \(phone.name)? · " + ByteCountFormatter.string(fromByteCount: size, countStyle: .file),
+            icon: NSWorkspace.shared.icon(forFile: urls[0].path))
+        go(.forward)
+        scheduleCollapse(after: 12)
+    }
+
+    func respondForward(_ send: Bool) {
+        let urls = forwardURLs
+        forwardURLs = []
+        forwardOffer = nil
+        if send && !urls.isEmpty { enqueue { await self.sendToPhone(urls) } } else { go(restingState) }
+    }
+
+    /// Pass files that came from the Android device on to an iPhone via AirDrop.
+    func airDropReceived() {
+        guard resultSettled, let urls = result?.localURLs, !urls.isEmpty else { return }
+        airDrop(urls)
     }
 
     // MARK: Feedback
@@ -399,8 +400,42 @@ final class IslandModel: ObservableObject {
             while let self, self.pointerInside, !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 400_000_000)
             }
-            guard let self, !Task.isCancelled, [.result, .message].contains(self.state) else { return }
+            guard let self, !Task.isCancelled, [.result, .message, .forward].contains(self.state) else { return }
+            if self.state == .forward { self.forwardURLs = []; self.forwardOffer = nil }
             self.go(self.restingState)
+        }
+    }
+
+    // MARK: Demo (`--demo [state]`) – walks through every state for previews
+
+    func runDemo(only: String?) {
+        demo = true
+        let icon = NSWorkspace.shared.icon(for: .pdf)
+        let name = "Quarterly Report.pdf"
+        let steps: [(String, () -> Void)] = [
+            ("hover", { self.go(.hover) }),
+            ("peek", { self.go(.dragPeek) }),
+            ("drop", { self.go(.dropTargets) }),
+            ("working", {
+                self.activity = Activity(icon: icon, title: name, progress: 0.62, tint: Palette.green)
+                self.go(.working)
+            }),
+            ("result", {
+                self.activity = nil
+                self.result = ResultInfo(kind: .received, icon: icon, title: name,
+                                         subtitle: "From Lenovo Legion Tab · Saved to Downloads")
+                self.go(.result)
+            }),
+            ("open", { self.go(.open) }),
+            ("toast", { self.showToast("checkmark.circle.fill", "Sent with AirDrop", tint: Palette.airdropBlue, duration: 60) }),
+        ]
+        let chosen = only.map { o in steps.filter { $0.0 == o } } ?? steps
+        for (i, step) in chosen.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1 + Double(i) * 2.5) {
+                self.collapseTask?.cancel()
+                step.1()
+                self.collapseTask?.cancel()
+            }
         }
     }
 
@@ -451,25 +486,7 @@ final class IslandModel: ObservableObject {
         }
     }
 
-    static func loadURLs(_ providers: [NSItemProvider], completion: @escaping @MainActor ([URL]) -> Void) {
-        let group = DispatchGroup()
-        let lock = NSLock()
-        var urls: [(Int, URL)] = []
-        for (i, p) in providers.enumerated() where p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            group.enter()
-            p.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-                var u: URL?
-                if let d = item as? Data { u = URL(dataRepresentation: d, relativeTo: nil) }
-                else if let x = item as? URL { u = x }
-                if let u { lock.lock(); urls.append((i, u)); lock.unlock() }
-                group.leave()
-            }
-        }
-        group.notify(queue: .main) {
-            let sorted = urls.sorted { $0.0 < $1.0 }.map(\.1)
-            MainActor.assumeIsolated { completion(sorted) }
-        }
-    }
+
 }
 
 private final class AirDropDelegate: NSObject, NSSharingServiceDelegate {
@@ -488,7 +505,6 @@ private final class AirDropDelegate: NSObject, NSSharingServiceDelegate {
 }
 
 enum Palette {
-    static let driveBlue = Color(red: 0.149, green: 0.518, blue: 0.988)
     static let airdropBlue = Color(red: 0.04, green: 0.52, blue: 1.0)
     static let green = Color(red: 0.188, green: 0.82, blue: 0.345)
     static let red = Color(red: 1.0, green: 0.27, blue: 0.23)

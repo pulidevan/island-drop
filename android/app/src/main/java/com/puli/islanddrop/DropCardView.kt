@@ -398,7 +398,7 @@ class DropCardView(
     // endregion
 }
 
-/** Document glyph tinted by file type, with a check badge on completion. Shows the Drive mark for links. */
+/** Document glyph tinted by file type, with a check badge on completion. */
 class FileIconView(context: Context, private val t: Transfer) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -444,7 +444,7 @@ class FileIconView(context: Context, private val t: Transfer) : View(context) {
     override fun onDraw(c: Canvas) {
         val w = width.toFloat(); val h = height.toFloat()
         if (t.kind == Transfer.Kind.LINK) {
-            if (t.url?.contains("drive.google") == true) drawDrive(c, w, h) else drawLink(c, w, h)
+            drawLink(c, w, h)
             return
         }
         val dw = w * 0.62f; val dh = h * 0.80f
@@ -506,27 +506,6 @@ class FileIconView(context: Context, private val t: Transfer) : View(context) {
         paint.strokeJoin = Paint.Join.ROUND
         paint.color = Color.WHITE
         c.drawPath(p, paint)
-    }
-
-    private fun drawDrive(c: Canvas, w: Float, h: Float) {
-        val s = min(w / 87.3f, h / 78f) * 0.82f
-        val ox = (w - 87.3f * s) / 2; val oy = (h - 78f * s) / 2
-        fun poly(col: Long, vararg pts: Float) {
-            val p = Path()
-            p.moveTo(ox + pts[0] * s, oy + pts[1] * s)
-            var i = 2
-            while (i < pts.size) { p.lineTo(ox + pts[i] * s, oy + pts[i + 1] * s); i += 2 }
-            p.close()
-            paint.style = Paint.Style.FILL
-            paint.color = col.toInt()
-            c.drawPath(p, paint)
-        }
-        poly(0xFF0066DA, 6.6f, 66.85f, 10.45f, 73.5f, 13.75f, 76.8f, 27.5f, 53f, 0f, 53f, 1.2f, 57.5f)
-        poly(0xFF00AC47, 43.65f, 25f, 29.9f, 1.2f, 26.6f, 4.5f, 1.2f, 48.5f, 0f, 53f, 27.5f, 53f)
-        poly(0xFFEA4335, 73.55f, 76.8f, 76.85f, 73.5f, 78.45f, 70.75f, 86.1f, 57.5f, 87.3f, 53f, 59.8f, 53f, 65.65f, 64.5f)
-        poly(0xFF00832D, 43.65f, 25f, 57.4f, 1.2f, 52.9f, 0f, 34.4f, 0f, 29.9f, 1.2f)
-        poly(0xFF2684FC, 59.8f, 53f, 27.5f, 53f, 13.75f, 76.8f, 18.25f, 78f, 69.05f, 78f, 73.55f, 76.8f)
-        poly(0xFFFFBA00, 73.4f, 26.5f, 60.7f, 4.5f, 57.4f, 1.2f, 43.65f, 25f, 59.8f, 53f, 87.3f, 53f, 86.1f, 48.5f)
     }
 
     private fun drawLink(c: Canvas, w: Float, h: Float) {

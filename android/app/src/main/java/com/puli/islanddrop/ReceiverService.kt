@@ -37,6 +37,7 @@ class ReceiverService : Service() {
     private var multicast: WifiManager.MulticastLock? = null
     private val pool = Executors.newCachedThreadPool()
     @Volatile private var running = false
+    private var macFinder: MacFinder? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -51,6 +52,9 @@ class ReceiverService : Service() {
         }
         running = true
         pool.execute { serve() }
+        WebBridge.start(this)
+        macFinder = MacFinder(this) { list -> Shortcuts.publish(this, list.map { it.serviceName }) }
+            .also { runCatching { it.start() } }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
@@ -58,6 +62,8 @@ class ReceiverService : Service() {
     override fun onDestroy() {
         running = false
         status = "Stopped"
+        macFinder?.stop()
+        WebBridge.stop()
         runCatching { registration?.let { nsd?.unregisterService(it) } }
         runCatching { server?.close() }
         runCatching { multicast?.release() }

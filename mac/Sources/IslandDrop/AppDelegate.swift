@@ -11,7 +11,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         island = IslandController(model: .shared)
         PhoneLink.shared.start()
+        MacReceiver.shared.start()
+        AirDropWatcher.shared.start()
         setupStatusItem()
+        if let i = CommandLine.arguments.firstIndex(of: "--demo") {
+            let only = CommandLine.arguments.indices.contains(i + 1) ? CommandLine.arguments[i + 1] : nil
+            IslandModel.shared.runDemo(only: only)
+        }
+        // `--drop phone|airdrop <file>`: same path as a real drop (used for testing).
+        if let i = CommandLine.arguments.firstIndex(of: "--drop"), CommandLine.arguments.count > i + 2,
+           let target = DropTarget(rawValue: CommandLine.arguments[i + 1]) {
+            let url = URL(fileURLWithPath: CommandLine.arguments[i + 2])
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { IslandModel.shared.perform(target, urls: [url]) }
+        }
     }
 
     private func setupStatusItem() {
@@ -28,25 +40,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        let auth = GoogleAuth.shared
 
         let open = NSMenuItem(title: "Open Island", action: #selector(openIsland), keyEquivalent: "")
         open.target = self
         menu.addItem(open)
         menu.addItem(.separator())
-
-        if let email = auth.email, auth.isConnected {
-            let item = NSMenuItem(title: "Google Drive: \(email)", action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
-            let dis = NSMenuItem(title: "Disconnect Google", action: #selector(disconnectGoogle), keyEquivalent: "")
-            dis.target = self
-            menu.addItem(dis)
-        } else {
-            let con = NSMenuItem(title: "Connect Google Drive…", action: #selector(connectGoogle), keyEquivalent: "")
-            con.target = self
-            menu.addItem(con)
-        }
 
         let phones = PhoneLink.shared.devices
         let phoneTitle = phones.isEmpty ? "No phone nearby" : "Phone: " + phones.map(\.name).joined(separator: ", ")
@@ -63,12 +61,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func openIsland() { IslandModel.shared.go(.open) }
     @objc private func openSettings() { SettingsWindow.show() }
-    @objc private func disconnectGoogle() { GoogleAuth.shared.disconnect() }
-    @objc private func connectGoogle() {
-        guard AppSettings.shared.hasClientCredentials else { SettingsWindow.show(); return }
-        Task {
-            do { try await GoogleAuth.shared.connect() }
-            catch { IslandModel.shared.showError(error) }
-        }
-    }
+
 }
